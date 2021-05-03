@@ -127,12 +127,11 @@ def extract_data(api):
     image_block = []
     img = False
     for variation in variations:
-        
         err = False
 
         if variation['isMain'] == True:
             ITEM_ID_LIST.append(str(variation['itemId']))
-        
+
         try:
             color_id = str(
                 variation['variationAttributeValues'][0]['attributeValue']['id']
@@ -161,7 +160,7 @@ def extract_data(api):
         if size == '':
             err = True
             size = 'Empty Value'
-        
+
         try:
             barcode = str(variation['variationBarcodes'][0]['code'])
             if not len(barcode) == 13:
@@ -202,7 +201,6 @@ def extract_data(api):
             seller_ref = 'Empty Value'
 
         brand = 'PANASIAM'
-        
         try:
             branch_id = str(
                 variation['variationDefaultCategory'][0]['branchId']
@@ -230,7 +228,7 @@ def extract_data(api):
         if image_block == []:
             err = True
             image_block = ['No Image found']
-        
+
         if err:
             ERROR_LIST.append([
                 seller_ref, barcode, brand, product_nature, category_id,
@@ -240,7 +238,7 @@ def extract_data(api):
             err = False
             image_block = []
             continue
-        
+
         ITEM_LIST.append([
             seller_ref, barcode, brand, product_nature, category_id,
             image_block[0], parent_sku, size, marketing_color,
@@ -251,7 +249,7 @@ def extract_data(api):
 
 def get_texts(api):
     """
-    Get all the parents from the variations which have been extracted in 
+    Get all the parents from the variations which have been extracted in
     extract_data(). Then cycle through the json file for the text data that
     is needed and do checks if they fulfill cdiscounts requirements and put
     them into a list of lists  and after put them into the item list created
@@ -269,25 +267,25 @@ def get_texts(api):
     for item in items:
         err = False
         parent_sku = str(item['id'])
-        
+
         if len(item['texts'][0]['description']) <= 5000:
             long_description = item['texts'][0]['description']
         else:
             err = True
             long_description = 'Text too long'
-        
+
         if len(item['texts'][0]['name1']) <= 30:
             short_label = item['texts'][0]['name1']
         else:
             err = True
             short_label = 'Text too long'
-        
+
         if len(item['texts'][0]['name2']) <= 132:
             long_label = item['texts'][0]['name2']
         else:
             err = True
             long_label = 'Text too long'
-        
+
         if len(item['texts'][0]['shortDescription']) <= 420:
             short_description = item['texts'][0]['shortDescription']
         else:
@@ -312,8 +310,8 @@ def get_texts(api):
 
     for i in count_list:
         ITEM_LIST.pop(i)
-                
-    
+
+
     for text in TEXT_LIST:
         for item in ITEM_LIST:
             if text[0] == item[6]:
@@ -327,7 +325,7 @@ def write_xlsx():
     Put all the extracted data into a dataframe and write into an excel file.
     """
     df = pd.DataFrame(ITEM_LIST)
-    
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = 'Linge de maison - rideau - store'
@@ -344,7 +342,7 @@ def write_xlsx():
 def write_error():
 
     df = pd.DataFrame(ERROR_LIST)
-    
+
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = 'Linge de maison - rideau - store'
