@@ -278,9 +278,6 @@ class PlentyFetch:
             ])
             image_block = []
 
-    def reverse(self, lst):
-        return [ele for ele in reversed(lst)]
-
     def get_texts(self):
         """
         Get all the parents from the variations which have been extracted in
@@ -344,7 +341,7 @@ class PlentyFetch:
                 if error['parent_sku'] == item[ITEM_PARENT_SKU_INDEX]:
                     self.errors.append(item+error)
                     count_list.append(count)
-        count_list = self.reverse(count_list)
+        count_list.reverse()
 
         for i in count_list:
             self.variations.pop(i)
