@@ -33,6 +33,14 @@ if not CONFIG_PATH.exists():
 
 # Constants
 
+MAX_LONG_DESC_LEN = 5000
+MAX_LONG_LABEL_LEN = 132
+MAX_SHORT_DESC_LEN = 420
+MAX_SHORT_LABEL_LEN = 30
+MAX_SELLER_REF_LEN = 50
+MAX_PARENT_SKU_LEN = 50
+MAX_EAN_LEN = 13
+MAX_MARKET_COLOR_LEN = 50
 ITEM_PARENT_SKU_INDEX = 6
 
 
@@ -168,7 +176,7 @@ class PlentyFetch:
                     variation['variationAttributeValues'][0]['attributeValue']['id']
                 )
                 marketing_color = MARKETING_COLOR_MAPPING[color_id]
-                if len(marketing_color) > 50:
+                if len(marketing_color) > MAX_MARKET_COLOR_LEN:
                     marketing_color = 'Too long'
                     err = True
             except:
@@ -194,7 +202,7 @@ class PlentyFetch:
 
             try:
                 barcode = str(variation['variationBarcodes'][0]['code'])
-                if not len(barcode) == 13:
+                if not len(barcode) == MAX_EAN_LEN:
                     barcode = 'Not 13 chars long'
                     err = True
             except IndexError:
@@ -207,7 +215,7 @@ class PlentyFetch:
 
             try:
                 parent_sku = variation['variationSkus'][4]['parentSku']
-                if len(parent_sku) > 50:
+                if len(parent_sku) > MAX_PARENT_SKU_LEN:
                     parent_sku = 'Too long'
                     err = True
             except IndexError:
@@ -221,7 +229,7 @@ class PlentyFetch:
             try:
                 seller_ref = str(
                     variation['marketItemNumbers'][0]['variationId'])
-                if len(seller_ref) > 50:
+                if len(seller_ref) > MAX_SELLER_REF_LEN:
                     seller_ref = 'Too long'
                     err = True
             except IndexError:
@@ -298,25 +306,25 @@ class PlentyFetch:
             err = False
             parent_sku = str(item['id'])
 
-            if len(item['texts'][0]['description']) <= 5000:
+            if len(item['texts'][0]['description']) <= MAX_LONG_DESC_LEN:
                 long_description = item['texts'][0]['description']
             else:
                 err = True
                 long_description = 'Text too long'
 
-            if len(item['texts'][0]['name1']) <= 30:
+            if len(item['texts'][0]['name1']) <= MAX_SHORT_LABEL_LEN:
                 short_label = item['texts'][0]['name1']
             else:
                 err = True
                 short_label = 'Text too long'
 
-            if len(item['texts'][0]['name2']) <= 132:
+            if len(item['texts'][0]['name2']) <= MAX_LONG_LABEL_LEN:
                 long_label = item['texts'][0]['name2']
             else:
                 err = True
                 long_label = 'Text too long'
 
-            if len(item['texts'][0]['shortDescription']) <= 420:
+            if len(item['texts'][0]['shortDescription']) <= MAX_SHORT_DESC_LEN:
                 short_description = item['texts'][0]['shortDescription']
             else:
                 err = True
