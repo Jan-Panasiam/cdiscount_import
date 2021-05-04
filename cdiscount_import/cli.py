@@ -31,6 +31,11 @@ if not CONFIG_PATH.exists():
     open(CONFIG_PATH, 'a').close()
 
 
+# Constants
+
+ITEM_PARENT_SKU_INDEX = 6
+
+
 MARKETING_COLOR_MAPPING = {
     '415' : 'Bleu jean',
     '234' : 'Mauve',
@@ -320,18 +325,23 @@ class PlentyFetch:
                 err = True
                 short_description = 'Text too long'
 
+            data = {
+                'parent_sku': parent_sku,
+                'short_label': short_label,
+                'long_label': long_label,
+                'short_description': short_description,
+                'long_description': long_description
+            }
             if err:
-                error_texts.append([parent_sku, short_label, long_label,
-                                short_description, long_description])
+                error_texts.append(data)
                 err = False
             else:
-                texts.append([parent_sku, short_label, long_label,
-                                short_description, long_description])
+                texts.append(data)
 
         count_list = []
         for error in error_texts:
             for count, item in enumerate(self.variations):
-                if error[0] == item[6]:
+                if error['parent_sku'] == item[ITEM_PARENT_SKU_INDEX]:
                     self.errors.append(item+error)
                     count_list.append(count)
         count_list = self.reverse(count_list)
@@ -339,14 +349,13 @@ class PlentyFetch:
         for i in count_list:
             self.variations.pop(i)
 
-
         for text in texts:
             for item in self.variations:
-                if text[0] == item[6]:
-                    item.insert(5, text[1])
-                    item.insert(6, text[2])
-                    item.insert(7, text[3])
-                    item.insert(12, text[4])
+                if text['parent_sku'] == item[ITEM_PARENT_SKU_INDEX]:
+                    item.insert(5, text['short_label'])
+                    item.insert(6, text['long_label'])
+                    item.insert(7, text['short_description'])
+                    item.insert(12, text['long_description'])
 
 
 class CdiscountWriter:
