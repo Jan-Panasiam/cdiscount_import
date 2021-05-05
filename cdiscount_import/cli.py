@@ -290,7 +290,7 @@ class PlentyFetch:
         variations = self.api.plenty_api_get_variations(
             refine = {'referrerId': self.referrer_id}, additional = [
                 'variationProperties', 'variationBarcodes',
-                'marketItemNumbers', 'variationDefaultCategory', 'images',
+                'variationDefaultCategory', 'images',
                 'variationAttributeValues', 'parent',
             ],
             lang='fr'
@@ -354,8 +354,7 @@ class PlentyFetch:
                 parent_sku = 'Empty Value'
 
             try:
-                seller_ref = str(
-                    variation['marketItemNumbers'][0]['variationId'])
+                seller_ref = str(variation['id'])
                 if len(seller_ref) > MAX_SELLER_REF_LEN:
                     seller_ref = 'Too long'
                     err = True
