@@ -314,15 +314,9 @@ class PlentyFetch:
                                     'No color mapping found']:
                 err = True
 
-            try:
-                size = self.__get_size_attribute(variation=variation)
-                if not size:
-                    size = self.__get_size_property(variation=variation,
-                                                    lang='fr')
-            except:
-                size = 'Not Found'
-                err = True
-
+            size = self.__get_size_attribute(variation=variation)
+            if not size:
+                size = self.__get_size_property(variation=variation, lang='fr')
             if size == '':
                 err = True
                 size = 'Empty Value'
