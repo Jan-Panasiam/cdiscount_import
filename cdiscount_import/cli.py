@@ -289,8 +289,7 @@ class PlentyFetch:
             refine = {'referrerId':'143'}, additional = [
                 'variationProperties', 'variationBarcodes', 'marketItemNumbers',
                 'variationCategories', 'variationDefaultCategory', 'images',
-                'variationAttributeValues', 'variationSkus',
-                'parent', 'item'
+                'variationAttributeValues', 'parent', 'item'
             ],
             lang='fr'
         )
