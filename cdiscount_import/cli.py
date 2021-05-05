@@ -42,7 +42,7 @@ MAX_SELLER_REF_LEN = 50
 MAX_PARENT_SKU_LEN = 50
 MAX_EAN_LEN = 13
 MAX_MARKET_COLOR_LEN = 50
-ITEM_PARENT_SKU_INDEX = 6
+ID_INDEX = 0
 
 
 cdiscount_list = [
@@ -99,7 +99,7 @@ class PlentyFetch:
         self.debug = debug
         self.attribute_mapping = {}
         self.variations = []
-        self.item_ids = []
+        self.item_ids = {}
         self.errors = []
 
     def __check_config(self):
@@ -299,8 +299,13 @@ class PlentyFetch:
         for variation in variations:
             err = False
 
+            try:
+                self.item_ids[str(variation['itemId'])].append(variation['id'])
+            except KeyError:
+                self.item_ids[str(variation['itemId'])] = [variation['id']]
+
             if variation['isMain'] == True:
-                self.item_ids.append(str(variation['itemId']))
+                continue
 
             marketing_color = self.__get_color_attribute(variation=variation)
             if marketing_color in  ['No color attribute found',
@@ -334,7 +339,7 @@ class PlentyFetch:
                 barcode = 'Empty Value'
 
             try:
-                parent_sku = variation['variationSkus'][4]['parentSku']
+                parent_sku = variation['parent']['number']
                 if len(parent_sku) > MAX_PARENT_SKU_LEN:
                     parent_sku = 'Too long'
                     err = True
@@ -414,7 +419,7 @@ class PlentyFetch:
         them into a list of lists  and after put them into the item list
         created by extract_data().
         """
-        item_string_list = "','".join(self.item_ids)
+        item_string_list = "','".join(self.item_ids.keys())
 
         items = (self.api.plenty_api_get_items(
             refine={'id':item_string_list}, lang='fr'
@@ -424,7 +429,7 @@ class PlentyFetch:
         error_texts = []
         for item in items:
             err = False
-            parent_sku = str(item['id'])
+            item_id = str(item['id'])
 
             if len(item['texts'][0]['description']) <= MAX_LONG_DESC_LEN:
                 long_description = item['texts'][0]['description']
@@ -451,7 +456,7 @@ class PlentyFetch:
                 short_description = 'Text too long'
 
             data = {
-                'parent_sku': parent_sku,
+                'item_id': item_id,
                 'short_label': short_label,
                 'long_label': long_label,
                 'short_description': short_description,
@@ -465,9 +470,9 @@ class PlentyFetch:
 
         count_list = []
         for error in error_texts:
-            for count, item in enumerate(self.variations):
-                if error['parent_sku'] == item[ITEM_PARENT_SKU_INDEX]:
-                    self.errors.append(item+error)
+            for count, variation in enumerate(self.variations):
+                if int(variation[ID_INDEX]) in self.item_ids[error['item_id']]:
+                    self.errors.append(variation + error)
                     count_list.append(count)
         count_list.reverse()
 
@@ -475,12 +480,12 @@ class PlentyFetch:
             self.variations.pop(i)
 
         for text in texts:
-            for item in self.variations:
-                if text['parent_sku'] == item[ITEM_PARENT_SKU_INDEX]:
-                    item.insert(5, text['short_label'])
-                    item.insert(6, text['long_label'])
-                    item.insert(7, text['short_description'])
-                    item.insert(12, text['long_description'])
+            for variation in self.variations:
+                if int(variation[ID_INDEX]) in self.item_ids[text['item_id']]:
+                    variation.insert(5, text['short_label'])
+                    variation.insert(6, text['long_label'])
+                    variation.insert(7, text['short_description'])
+                    variation.insert(12, text['long_description'])
 
 
 class CdiscountWriter:
