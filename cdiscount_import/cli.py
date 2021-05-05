@@ -97,6 +97,7 @@ class PlentyFetch:
         self.config = config
         self.__check_config()
         self.debug = debug
+        self.referrer_id = int(self.config['plenty']['referrer_id'])
         self.attribute_mapping = {}
         self.variations = []
         self.item_ids = {}
@@ -108,7 +109,8 @@ class PlentyFetch:
         """
         required_options = {
             'plenty': [
-                'base_url', 'color_attribute_id', 'size_attribute_id'
+                'base_url', 'color_attribute_id', 'size_attribute_id',
+                'referrer_id'
             ], 'category_mapping': []}
 
         for section in required_options:
@@ -173,8 +175,8 @@ class PlentyFetch:
         attributes = self.api.plenty_api_get_attributes(additional=['values'])
         color_id = int(self.config['plenty']['color_attribute_id'])
         size_id = int(self.config['plenty']['size_attribute_id'])
-        cdiscount_mappings = self.__get_market_mapping(attribute_id=color_id,
-                                                       market_id=143)
+        cdiscount_mappings = self.__get_market_mapping(
+            attribute_id=color_id, market_id=self.referrer_id)
         if not cdiscount_mappings:
             raise RuntimeError("No mapped color values for Cdiscount")
 
@@ -286,10 +288,10 @@ class PlentyFetch:
         """
         self.attribute_mapping = self.__get_attribute_mappings(lang='fr')
         variations = self.api.plenty_api_get_variations(
-            refine = {'referrerId':'143'}, additional = [
-                'variationProperties', 'variationBarcodes', 'marketItemNumbers',
-                'variationCategories', 'variationDefaultCategory', 'images',
-                'variationAttributeValues', 'parent', 'item'
+            refine = {'referrerId': self.referrer_id}, additional = [
+                'variationProperties', 'variationBarcodes',
+                'marketItemNumbers', 'variationDefaultCategory', 'images',
+                'variationAttributeValues', 'parent',
             ],
             lang='fr'
         )
@@ -383,7 +385,7 @@ class PlentyFetch:
 
             for image in variation['images']:
                 for availability in image['availabilities']:
-                    if availability['value'] == 143:
+                    if availability['value'] == self.referrer_id:
                         img = True
 
                 if img:
