@@ -111,7 +111,7 @@ class PlentyFetch:
         required_options = {
             'plenty': [
                 'base_url', 'color_attribute_id', 'size_attribute_id',
-                'referrer_id', 'ean_barcode_id'
+                'referrer_id', 'ean_barcode_id', 'plenty_id'
             ], 'category_mapping': []}
 
         for section in required_options:
@@ -305,6 +305,35 @@ class PlentyFetch:
 
         return 'No EAN barcode found'
 
+    def __get_category(self, variation: dict) -> str:
+        """
+        Get the default category ID for the mandant that runs Cdiscount and
+        map it to the valid Cdiscount category ID.
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+
+        Return:
+                        [str]
+        """
+        try:
+            categories = variation['variationDefaultCategory']
+        except KeyError:
+            return 'No category found'
+
+        plenty_id = int(self.config['plenty']['plenty_id'])
+        for category in categories:
+            if category['plentyId'] == plenty_id:
+                category_id = str(category['branchId'])
+            else:
+                continue
+            try:
+                return self.config['category_mapping'][category_id]
+            except KeyError:
+                return 'No mapped cdiscount category'
+        return 'No category for mandant'
+
     def __get_images(self, variation : dict) -> list:
         """
         Get a maximum of 4 images for the Cdiscount columns.
@@ -425,18 +454,10 @@ class PlentyFetch:
                 seller_ref = 'Empty Value'
 
             brand = 'PANASIAM'
-            try:
-                branch_id = str(
-                    variation['variationDefaultCategory'][0]['branchId']
-                )
-                category_id = self.config['category_mapping'][branch_id]
-            except IndexError:
-                category_id = 'Not Found'
+            category_id = self.__get_category(variation=variation)
+            if category_id in ['No category found', 'No category for mandant',
+                               'No mapped cdiscount category']:
                 err = True
-
-            if category_id == '':
-                err = True
-                category_id = 'Empty Value'
 
             product_nature = 'Standard'
 
