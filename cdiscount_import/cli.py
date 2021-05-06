@@ -4,6 +4,7 @@ import configparser
 import pandas as pd
 import numpy as np
 import openpyxl
+import re
 import os
 import requests
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -279,6 +280,52 @@ class PlentyFetch:
 
         return ''
 
+    def __get_images(self, variation : dict) -> list:
+        """
+        Get a maximum of 4 images for the Cdiscount columns.
+
+        The last image should always be a swatch image (an image that
+        represents multiple variations at once).
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+
+        Return:
+                        [str]
+        """
+        try:
+            images = variation['images']
+        except KeyError:
+            return []
+
+        image_list = []
+        for image in images:
+            for availability in image['availabilities']:
+                if availability['value'] == self.referrer_id:
+                    image_list.append(
+                        {'url': image['url'], 'position': image['position']}
+                    )
+
+        if not image_list:
+            return []
+
+        image_list = sorted(image_list, key=lambda item: item.get('position'))
+        swatch_images = []
+        for index, image in enumerate(image_list):
+            # This is a highly specific condition for our use case
+            if re.search('swatch', image['url'].lower()):
+                swatch_images.append(image_list.pop(index))
+
+        if len(image_list) > 4 and len(swatch_images) == 0:
+            image_list = image_list[:4]
+        elif len(image_list) > 3 and len(swatch_images) >= 1:
+            image_list = image_list[:3] + [swatch_images[0]]
+        else:
+            image_list += swatch_images[:4-len(image_list)]
+
+        return [x['url'] for x in image_list]
+
     def extract_data(self):
         """
         Get all the variations from the API that have the referrerId of
@@ -376,35 +423,21 @@ class PlentyFetch:
 
             product_nature = 'Standard'
 
-            for image in variation['images']:
-                for availability in image['availabilities']:
-                    if availability['value'] == self.referrer_id:
-                        img = True
-
-                if img:
-                    image_block.append(image['url'])
-                    img = False
-
-            if image_block == []:
+            image_block = self.__get_images(variation=variation)
+            if not image_block:
                 err = True
                 image_block = ['No Image found']
 
+            data = [
+                seller_ref, barcode, brand, product_nature, category_id,
+                image_block[0], parent_sku, size, marketing_color
+            ] + image_block[1:]
             if err:
-                self.errors.append([
-                    seller_ref, barcode, brand, product_nature, category_id,
-                    image_block[0], parent_sku, size, marketing_color,
-                    image_block[-1]
-                ])
+                self.errors.append(data)
                 err = False
-                image_block = []
                 continue
 
-            self.variations.append([
-                seller_ref, barcode, brand, product_nature, category_id,
-                image_block[0], parent_sku, size, marketing_color,
-                image_block[-1]
-            ])
-            image_block = []
+            self.variations.append(data)
 
     def get_texts(self):
         """
