@@ -111,7 +111,7 @@ class PlentyFetch:
         required_options = {
             'plenty': [
                 'base_url', 'color_attribute_id', 'size_attribute_id',
-                'referrer_id'
+                'referrer_id', 'ean_barcode_id'
             ], 'category_mapping': []}
 
         for section in required_options:
@@ -280,6 +280,31 @@ class PlentyFetch:
 
         return ''
 
+    def __get_barcode(self, variation: dict) -> str:
+        """
+        Get the 13 character EAN (GTIN-13) barcode from Plentymarkets.
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+
+        Return:
+                        [str]
+        """
+        try:
+            barcodes = variation['variationBarcodes']
+        except KeyError:
+            return 'No barcode found'
+
+        barcode_id = int(self.config['plenty']['ean_barcode_id'])
+        for barcode in barcodes:
+            if barcode['barcodeId'] == barcode_id:
+                if len(barcode['code']) != MAX_EAN_LEN:
+                    return 'Invalid EAN barcode length'
+                return barcode['code']
+
+        return 'No EAN barcode found'
+
     def __get_images(self, variation : dict) -> list:
         """
         Get a maximum of 4 images for the Cdiscount columns.
@@ -368,18 +393,10 @@ class PlentyFetch:
                 err = True
                 size = 'Empty Value'
 
-            try:
-                barcode = str(variation['variationBarcodes'][0]['code'])
-                if not len(barcode) == MAX_EAN_LEN:
-                    barcode = 'Not 13 chars long'
-                    err = True
-            except IndexError:
-                barcode = 'Not Found'
+            barcode = self.__get_barcode(variation=variation)
+            if barcode in ['No barcode found', 'No EAN barcode found',
+                           'Invalid EAN barcode length']:
                 err = True
-
-            if barcode == '':
-                err = True
-                barcode = 'Empty Value'
 
             try:
                 parent_sku = variation['parent']['number']
