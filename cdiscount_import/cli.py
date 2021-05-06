@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import openpyxl
 import os
+import requests
 from openpyxl.utils.dataframe import dataframe_to_rows
 import pprint
 import json
@@ -43,29 +44,6 @@ MAX_EAN_LEN = 13
 MAX_MARKET_COLOR_LEN = 50
 ITEM_PARENT_SKU_INDEX = 6
 
-
-MARKETING_COLOR_MAPPING = {
-    '415' : 'Bleu jean',
-    '234' : 'Mauve',
-    '160' : 'Rose',
-    '117' : 'Rouge tomate',
-    '345' : 'Bleu turquoise',
-    '205' : 'Bleu',
-    '193' : 'Vert',
-    '403' : 'Rose',
-    '172' : 'Blanc-bleu',
-    '171' : 'Violet',
-    '77' : 'Rouge',
-    '249' : 'Rouge bordeaux',
-    '147' : 'Bleu azur',
-    '94' : 'Noir',
-    '300' : 'Purple',
-    '235' : 'Turquoise'
-}
-
-SIZE_MAPPING = {
-    '215' : 'M'
-}
 
 cdiscount_list = [
     "Seller product ref", "Barcode", "Brand", "Product nature",
@@ -119,6 +97,7 @@ class PlentyFetch:
         self.config = config
         self.__check_config()
         self.debug = debug
+        self.attribute_mapping = {}
         self.variations = []
         self.item_ids = []
         self.errors = []
@@ -127,7 +106,10 @@ class PlentyFetch:
         """
         Check if the configuration contains all required sections and options.
         """
-        required_options = {'plenty': ['base_url'], 'category_mapping': []}
+        required_options = {
+            'plenty': [
+                'base_url', 'color_attribute_id', 'size_attribute_id'
+            ], 'category_mapping': []}
 
         for section in required_options:
             if not self.config.has_section(section=section):
@@ -145,6 +127,155 @@ class PlentyFetch:
             debug=self.debug
         )
 
+    def __get_market_mapping(self, attribute_id: int, market_id: int) -> dict:
+        """
+        Get a attribute mapping for a specifc marketplace from Plentymarkets.
+
+        Parameters:
+            attribute_id[int]   -   ID assigned by Plentymarkets for the
+                                    attribute
+            market_id   [int]   -   ID assinged by Plentymarkets for the
+                                    marketplace
+        """
+        maps = requests.get(
+            self.api.url + '/rest/items/attributes/values/maps',
+            headers=self.api.creds
+        ).json()
+        entries = maps['entries']
+
+        page = 1
+        while (page < maps['lastPageNumber']):
+            page += 1
+            new_maps = requests.get(
+                self.api.url +
+                f'/rest/items/attributes/values/maps?page={page}',
+                headers=self.api.creds
+            ).json()
+            entries += new_maps['entries']
+
+        return {
+            str(entry['attributeValueId']): entry['marketInformation1']
+            for entry in entries
+            if entry['attributeId'] == attribute_id
+            and entry['marketId'] == market_id
+        }
+
+    def __get_attribute_mappings(self, lang: str) -> dict:
+        """
+        Create a map of attribute names for size and color attribute values.
+
+        Parameters:
+            lang        [str]   -   2 letter abbr. of the target language
+
+        Return:
+                        [dict]
+        """
+        attributes = self.api.plenty_api_get_attributes(additional=['values'])
+        color_id = int(self.config['plenty']['color_attribute_id'])
+        size_id = int(self.config['plenty']['size_attribute_id'])
+        cdiscount_mappings = self.__get_market_mapping(attribute_id=color_id,
+                                                       market_id=143)
+        if not cdiscount_mappings:
+            raise RuntimeError("No mapped color values for Cdiscount")
+
+        mapping = {'color': cdiscount_mappings}
+        for attribute in attributes:
+            if attribute['id'] == size_id:
+                mapping['size'] = {
+                    str(value['id']):str(name['name'])
+                    for value in attribute['values']
+                    for name in value['valueNames'] if name['lang'] == lang
+                }
+
+        return mapping
+
+    def __get_color_attribute(self, variation: dict) -> str:
+        """
+        Get the markting color from the color mapping table for a color.
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+
+        Return:
+                        [str]   -   Name of the size
+        """
+        try:
+            attributes = variation['variationAttributeValues']
+        except KeyError:
+            return 'No color attribute found'
+
+        plenty_id = int(self.config['plenty']['color_attribute_id'])
+        for attribute in attributes:
+            if attribute['attributeId'] == plenty_id:
+                color_id = str(attribute['attributeValue']['id'])
+                try:
+                    return self.attribute_mapping['color'][color_id]
+                except KeyError:
+                    return 'No color mapping found'
+
+        return 'No color attribute found'
+
+    def __get_size_attribute(self, variation: dict) -> str:
+        """
+        Get the size name from the size mapping table for the given attribute.
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+
+        Return:
+                        [str]   -   Name of the size
+        """
+        try:
+            attributes = variation['variationAttributeValues']
+        except KeyError:
+            return ''
+
+        plenty_id = int(self.config['plenty']['size_attribute_id'])
+        for attribute in attributes:
+            if attribute['attributeId'] == plenty_id:
+                value_id = str(attribute['attributeValue']['id'])
+                try:
+                    return self.attribute_mapping['size'][value_id]
+                except KeyError:
+                    return ''
+
+        return ''
+
+    def __get_size_property(self, variation: dict, lang: str) -> str:
+        """
+        As alternative to the size attribute, get the size from a property.
+
+        Some products don't have a size attribute as they are one-size products
+        Cdiscount requires a size name, so get the size from a property as
+        alternative.
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+            lang        [str]   -   2 letter abbr. of the target language
+
+        Return:
+                        [str]
+        """
+        if not self.config.has_option(section='plenty',
+                                      option='size_property_id'):
+            return ''
+
+        try:
+            properties = variation['variationProperties']
+        except KeyError:
+            return ''
+
+        prop_id = int(self.config['plenty']['size_property_id'])
+        for prop in properties:
+            if prop['propertyId'] == prop_id:
+                for name in prop['names']:
+                    if lang.lower() == name['lang'].lower():
+                        return name['value']
+
+        return ''
 
     def extract_data(self):
         """
@@ -153,9 +284,10 @@ class PlentyFetch:
         needed and do checks if they fulfill cdiscounts requirements and put
         them into a list of lists.
         """
+        self.attribute_mapping = self.__get_attribute_mappings(lang='fr')
         variations = self.api.plenty_api_get_variations(
             refine = {'referrerId':'143'}, additional = [
-                'properties', 'variationBarcodes', 'marketItemNumbers',
+                'variationProperties', 'variationBarcodes', 'marketItemNumbers',
                 'variationCategories', 'variationDefaultCategory', 'images',
                 'variationAttributeValues', 'variationSkus',
                 'parent', 'item'
@@ -171,27 +303,16 @@ class PlentyFetch:
             if variation['isMain'] == True:
                 self.item_ids.append(str(variation['itemId']))
 
-            try:
-                color_id = str(
-                    variation['variationAttributeValues'][0]['attributeValue']['id']
-                )
-                marketing_color = MARKETING_COLOR_MAPPING[color_id]
-                if len(marketing_color) > MAX_MARKET_COLOR_LEN:
-                    marketing_color = 'Too long'
-                    err = True
-            except:
-                marketing_color = 'Not Found'
+            marketing_color = self.__get_color_attribute(variation=variation)
+            if marketing_color in  ['No color attribute found',
+                                    'No color mapping found']:
                 err = True
 
-            if marketing_color == '':
-                err = True
-                marketing_color = 'Empty Value'
-
             try:
-                for prop in variation['properties']:
-                    if prop['propertyId'] == 74:
-                        size_id = str(prop['relationValues'][0]['value'])
-                        size = SIZE_MAPPING[size_id]
+                size = self.__get_size_attribute(variation=variation)
+                if not size:
+                    size = self.__get_size_property(variation=variation,
+                                                    lang='fr')
             except:
                 size = 'Not Found'
                 err = True
