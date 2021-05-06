@@ -1,37 +1,35 @@
+import sys
+import pathlib
+import configparser
 import pandas as pd
 import numpy as np
 import openpyxl
-import os.path
+import os
 from openpyxl.utils.dataframe import dataframe_to_rows
 import pprint
 import json
 import plenty_api
 
-CATEGORY_ID_MAPPING = {
-    '34' : '10060201',
-    '35' : '10060201',
-    '36' : '10060201',
-    '38' : '10040301',
-    '39' : '100A0301',
-    '40' : '10070401',
-    '41' : '10010D01',
-    '53' : '10060201',
-    '62' : '10080101',
-    '63' : '10040101',
-    '64' : '100C0201',
-    '65' : '100A0201',
-    '66' : '100A0301',
-    '68' : '10070401',
-    '69' : '100C0201',
-    '70' : '10060201',
-    '71' : '10060201',
-    '72' : '10060201',
-    '73' : '10060501',
-    '84' : '10010D01',
-    '85' : '10060201',
-    '86' : '10060201',
-    '87' : '10080201'
-}
+
+PROG_NAME = 'cdiscount_import'
+USER = str(os.getlogin())
+if sys.platform == 'linux':
+    BASE_PATH = pathlib.Path('/') / 'home' / USER / '.config'
+elif sys.platform == 'win32':
+    BASE_PATH = pathlib.Path('C:\\') / 'Users' / USER / '.config'
+
+if not BASE_PATH.exists():
+    pathlib.Path(BASE_PATH).mkdir(parents=True, exist_ok=True)
+
+CONFIG_FOLDER = BASE_PATH / PROG_NAME
+if not CONFIG_FOLDER.exists():
+    pathlib.Path(CONFIG_FOLDER).mkdir(parents=True, exist_ok=True)
+
+CONFIG_PATH = CONFIG_FOLDER / 'config.ini'
+
+if not CONFIG_PATH.exists():
+    open(CONFIG_PATH, 'a').close()
+
 
 MARKETING_COLOR_MAPPING = {
     '415' : 'Bleu jean',
@@ -80,290 +78,367 @@ cdiscount_list = [
     "Notes", "Labels et certifications"
 ]
 
-ITEM_LIST = []
-ITEM_ID_LIST =[]
-IMAGE_LIST = []
-TEXT_LIST = []
-ERROR_LIST = []
-ERROR_TEXT_LIST = []
 
-def reverse(lst):
-    return [ele for ele in reversed(lst)]
-
-def connect():
+class InvalidConfig(Exception):
     """
-    Connect to the plentyAPI:
+    Exception raised when the provided configuration is not valid.
 
-    Return:
-                    [PlentyApi] -   Api used for data extraction
+    Attributes:
+            section     -   The section that contains an invalid option
+            option      -   The option which is invalid
+            message     -   Explanation of the error
     """
-    api = plenty_api.PlentyApi(
-        base_url='https://panasiam.plentymarkets-cloud01.com',
-        use_keyring=True,
-        debug=True
-    )
-    return api
+    def __init__(self, section: str, option: str = ''):
+        self.section = section
+        self.option = option
+        super().__init__()
 
-def extract_data(api):
-    """
-    Get all the variations from the API that have the referrerId of cdiscount.
-    Then cycle through the json file for the data that is needed and do checks
-    if they fulfill cdiscounts requirements and put them into a list of lists.
+    def __str__(self):
+        """Build the exception message from the different attributes."""
+        if not self.option:
+            return f"missing section [{self.section}]"
+        return f"missing option `{self.option}` in section [{self.section}]"
 
-    Parameters:
-        api         [PlentyApi] -   Api where data is to be extracted from
-    """
 
-    variations = api.plenty_api_get_variations(
-        refine = {'referrerId':'143'}, additional = [
-            'properties', 'variationBarcodes', 'marketItemNumbers',
-            'variationCategories', 'variationDefaultCategory', 'images',
-            'variationAttributeValues', 'variationSkus',
-            'parent', 'item'
-        ],
-        lang='fr'
-    )
+class PlentyFetch:
+    def __init__(self, config: configparser.ConfigParser,
+                 debug: bool = False) -> None:
+        self.config = config
+        self.__check_config()
+        self.debug = debug
+        self.variations = []
+        self.item_ids = []
+        self.errors = []
 
-    image_block = []
-    img = False
-    for variation in variations:
-        err = False
+    def __check_config(self):
+        """
+        Check if the configuration contains all required sections and options.
+        """
+        required_options = {'plenty': ['base_url'], 'category_mapping': []}
 
-        if variation['isMain'] == True:
-            ITEM_ID_LIST.append(str(variation['itemId']))
+        for section in required_options:
+            if not self.config.has_section(section=section):
+                raise InvalidConfig(section=section)
 
-        try:
-            color_id = str(
-                variation['variationAttributeValues'][0]['attributeValue']['id']
-            )
-            marketing_color = MARKETING_COLOR_MAPPING[color_id]
-            if len(marketing_color) > 50:
-                marketing_color = 'Too long'
+            for option in required_options[section]:
+                if not self.config.has_option(section=section, option=option):
+                    raise InvalidConfig(section=section, option=option)
+
+    def connect(self):
+        """Connect to the plentyAPI"""
+        self.api = plenty_api.PlentyApi(
+            base_url=self.config['plenty']['base_url'],
+            use_keyring=True,
+            debug=self.debug
+        )
+
+
+    def extract_data(self):
+        """
+        Get all the variations from the API that have the referrerId of
+        cdiscount.  Then cycle through the json file for the data that is
+        needed and do checks if they fulfill cdiscounts requirements and put
+        them into a list of lists.
+        """
+        variations = self.api.plenty_api_get_variations(
+            refine = {'referrerId':'143'}, additional = [
+                'properties', 'variationBarcodes', 'marketItemNumbers',
+                'variationCategories', 'variationDefaultCategory', 'images',
+                'variationAttributeValues', 'variationSkus',
+                'parent', 'item'
+            ],
+            lang='fr'
+        )
+
+        image_block = []
+        img = False
+        for variation in variations:
+            err = False
+
+            if variation['isMain'] == True:
+                self.item_ids.append(str(variation['itemId']))
+
+            try:
+                color_id = str(
+                    variation['variationAttributeValues'][0]['attributeValue']['id']
+                )
+                marketing_color = MARKETING_COLOR_MAPPING[color_id]
+                if len(marketing_color) > 50:
+                    marketing_color = 'Too long'
+                    err = True
+            except:
+                marketing_color = 'Not Found'
                 err = True
-        except:
-            marketing_color = 'Not Found'
-            err = True
 
-        if marketing_color == '':
-            err = True
-            marketing_color = 'Empty Value'
-
-        try:
-            for prop in variation['properties']:
-                if prop['propertyId'] == 74:
-                    size_id = str(prop['relationValues'][0]['value'])
-                    size = SIZE_MAPPING[size_id]
-        except:
-            size = 'Not Found'
-            err = True
-
-        if size == '':
-            err = True
-            size = 'Empty Value'
-
-        try:
-            barcode = str(variation['variationBarcodes'][0]['code'])
-            if not len(barcode) == 13:
-                barcode = 'Not 13 chars long'
+            if marketing_color == '':
                 err = True
-        except IndexError:
-            barcode = 'Not Found'
-            err = True
+                marketing_color = 'Empty Value'
 
-        if barcode == '':
-            err = True
-            barcode = 'Empty Value'
-
-        try:
-            parent_sku = variation['variationSkus'][4]['parentSku']
-            if len(parent_sku) > 50:
-                parent_sku = 'Too long'
+            try:
+                for prop in variation['properties']:
+                    if prop['propertyId'] == 74:
+                        size_id = str(prop['relationValues'][0]['value'])
+                        size = SIZE_MAPPING[size_id]
+            except:
+                size = 'Not Found'
                 err = True
-        except IndexError:
-            parent_sku = 'Not Found'
-            err = True
 
-        if parent_sku == '':
-            err = True
-            parent_sku = 'Empty Value'
-
-        try:
-            seller_ref = str(variation['marketItemNumbers'][0]['variationId'])
-            if len(seller_ref) > 50:
-                seller_ref = 'Too long'
+            if size == '':
                 err = True
-        except IndexError:
-            seller_ref = 'Not Found'
-            err = True
+                size = 'Empty Value'
 
-        if seller_ref == '':
-            err = True
-            seller_ref = 'Empty Value'
+            try:
+                barcode = str(variation['variationBarcodes'][0]['code'])
+                if not len(barcode) == 13:
+                    barcode = 'Not 13 chars long'
+                    err = True
+            except IndexError:
+                barcode = 'Not Found'
+                err = True
 
-        brand = 'PANASIAM'
-        try:
-            branch_id = str(
-                variation['variationDefaultCategory'][0]['branchId']
-            )
-            category_id = CATEGORY_ID_MAPPING[branch_id]
-        except IndexError:
-            category_id = 'Not Found'
-            err = True
+            if barcode == '':
+                err = True
+                barcode = 'Empty Value'
 
-        if category_id == '':
-            err = True
-            category_id = 'Empty Value'
+            try:
+                parent_sku = variation['variationSkus'][4]['parentSku']
+                if len(parent_sku) > 50:
+                    parent_sku = 'Too long'
+                    err = True
+            except IndexError:
+                parent_sku = 'Not Found'
+                err = True
 
-        product_nature = 'Standard'
+            if parent_sku == '':
+                err = True
+                parent_sku = 'Empty Value'
 
-        for image in variation['images']:
-            for availability in image['availabilities']:
-                if availability['value'] == 143:
-                    img = True
+            try:
+                seller_ref = str(
+                    variation['marketItemNumbers'][0]['variationId'])
+                if len(seller_ref) > 50:
+                    seller_ref = 'Too long'
+                    err = True
+            except IndexError:
+                seller_ref = 'Not Found'
+                err = True
 
-            if img:
-                image_block.append(image['url'])
-                img = False
+            if seller_ref == '':
+                err = True
+                seller_ref = 'Empty Value'
 
-        if image_block == []:
-            err = True
-            image_block = ['No Image found']
+            brand = 'PANASIAM'
+            try:
+                branch_id = str(
+                    variation['variationDefaultCategory'][0]['branchId']
+                )
+                category_id = self.config['category_mapping'][branch_id]
+            except IndexError:
+                category_id = 'Not Found'
+                err = True
 
-        if err:
-            ERROR_LIST.append([
+            if category_id == '':
+                err = True
+                category_id = 'Empty Value'
+
+            product_nature = 'Standard'
+
+            for image in variation['images']:
+                for availability in image['availabilities']:
+                    if availability['value'] == 143:
+                        img = True
+
+                if img:
+                    image_block.append(image['url'])
+                    img = False
+
+            if image_block == []:
+                err = True
+                image_block = ['No Image found']
+
+            if err:
+                self.errors.append([
+                    seller_ref, barcode, brand, product_nature, category_id,
+                    image_block[0], parent_sku, size, marketing_color,
+                    image_block[-1]
+                ])
+                err = False
+                image_block = []
+                continue
+
+            self.variations.append([
                 seller_ref, barcode, brand, product_nature, category_id,
                 image_block[0], parent_sku, size, marketing_color,
                 image_block[-1]
             ])
-            err = False
             image_block = []
-            continue
 
-        ITEM_LIST.append([
-            seller_ref, barcode, brand, product_nature, category_id,
-            image_block[0], parent_sku, size, marketing_color,
-            image_block[-1]
-        ])
-        IMAGE_LIST.append(image_block)
-        image_block = []
+    def reverse(self, lst):
+        return [ele for ele in reversed(lst)]
 
-def get_texts(api):
-    """
-    Get all the parents from the variations which have been extracted in
-    extract_data(). Then cycle through the json file for the text data that
-    is needed and do checks if they fulfill cdiscounts requirements and put
-    them into a list of lists  and after put them into the item list created
-    by extract_data().
+    def get_texts(self):
+        """
+        Get all the parents from the variations which have been extracted in
+        extract_data(). Then cycle through the json file for the text data that
+        is needed and do checks if they fulfill cdiscounts requirements and put
+        them into a list of lists  and after put them into the item list
+        created by extract_data().
+        """
+        item_string_list = "','".join(self.item_ids)
 
-    Parameters:
-        api         [PlentyApi] -   Api where text data is to be extracted from
-    """
-    ITEM_STRING_LIST = "','".join(ITEM_ID_LIST)
+        items = (self.api.plenty_api_get_items(
+            refine={'id':item_string_list}, lang='fr'
+        ))
 
-    items = (api.plenty_api_get_items(
-        refine={'id':ITEM_STRING_LIST}, lang='fr'
-    ))
-
-    for item in items:
-        err = False
-        parent_sku = str(item['id'])
-
-        if len(item['texts'][0]['description']) <= 5000:
-            long_description = item['texts'][0]['description']
-        else:
-            err = True
-            long_description = 'Text too long'
-
-        if len(item['texts'][0]['name1']) <= 30:
-            short_label = item['texts'][0]['name1']
-        else:
-            err = True
-            short_label = 'Text too long'
-
-        if len(item['texts'][0]['name2']) <= 132:
-            long_label = item['texts'][0]['name2']
-        else:
-            err = True
-            long_label = 'Text too long'
-
-        if len(item['texts'][0]['shortDescription']) <= 420:
-            short_description = item['texts'][0]['shortDescription']
-        else:
-            err = True
-            short_description = 'Text too long'
-
-        if err:
-            ERROR_TEXT_LIST.append([parent_sku, short_label, long_label,
-                              short_description, long_description])
+        texts = []
+        error_texts = []
+        for item in items:
             err = False
+            parent_sku = str(item['id'])
+
+            if len(item['texts'][0]['description']) <= 5000:
+                long_description = item['texts'][0]['description']
+            else:
+                err = True
+                long_description = 'Text too long'
+
+            if len(item['texts'][0]['name1']) <= 30:
+                short_label = item['texts'][0]['name1']
+            else:
+                err = True
+                short_label = 'Text too long'
+
+            if len(item['texts'][0]['name2']) <= 132:
+                long_label = item['texts'][0]['name2']
+            else:
+                err = True
+                long_label = 'Text too long'
+
+            if len(item['texts'][0]['shortDescription']) <= 420:
+                short_description = item['texts'][0]['shortDescription']
+            else:
+                err = True
+                short_description = 'Text too long'
+
+            if err:
+                error_texts.append([parent_sku, short_label, long_label,
+                                short_description, long_description])
+                err = False
+            else:
+                texts.append([parent_sku, short_label, long_label,
+                                short_description, long_description])
+
+        count_list = []
+        for error in error_texts:
+            for count, item in enumerate(self.variations):
+                if error[0] == item[6]:
+                    self.errors.append(item+error)
+                    count_list.append(count)
+        count_list = self.reverse(count_list)
+
+        for i in count_list:
+            self.variations.pop(i)
+
+
+        for text in texts:
+            for item in self.variations:
+                if text[0] == item[6]:
+                    item.insert(5, text[1])
+                    item.insert(6, text[2])
+                    item.insert(7, text[3])
+                    item.insert(12, text[4])
+
+
+class CdiscountWriter:
+    def __init__(self, filename: str, error_filename: str,
+                 base_path: str = ''):
+        if not base_path:
+            base_path = pathlib.Path('.')
         else:
-            TEXT_LIST.append([parent_sku, short_label, long_label,
-                             short_description, long_description])
+            base_path = pathlib.Path(base_path)
 
-    count_list = []
-    for error in ERROR_TEXT_LIST:
-        for count, item in enumerate(ITEM_LIST):
-            if error[0] == item[6]:
-                ERROR_LIST.append(item+error)
-                count_list.append(count)
-    count_list = reverse(count_list)
+        self.filename = base_path / filename
+        self.error_filename = base_path / error_filename
 
-    for i in count_list:
-        ITEM_LIST.pop(i)
+    def write_xlsx(self, variations: list):
+        """
+        Put the extracted data into a dataframe and write into an excel file.
 
+        Parameters:
+            variations  [list]  -   Extracted variations from the plentymarkets
+                                    API in the correct order for the Cdiscount
+                                    file
+        """
+        df = pd.DataFrame(variations)
+        if len(df.index) == 0:
+            pprint.pprint("No extracted variations found.")
+            return
 
-    for text in TEXT_LIST:
-        for item in ITEM_LIST:
-            if text[0] == item[6]:
-                item.insert(5, text[1])
-                item.insert(6, text[2])
-                item.insert(7, text[3])
-                item.insert(12, text[4])
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Linge de maison - rideau - store'
+        ws['A1'] = 'Model:'
+        ws['B1'] = 'Linge de maison - rideau - store'
+        ws.append(['',''])
+        ws.append(cdiscount_list)
+        ws.append(['',''])
+        for row in dataframe_to_rows(df, index = False, header = False):
+            ws.append(row)
 
-def write_xlsx():
-    """
-    Put all the extracted data into a dataframe and write into an excel file.
-    """
-    df = pd.DataFrame(ITEM_LIST)
+        wb.save(filename=self.filename)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = 'Linge de maison - rideau - store'
-    ws['A1'] = 'Model:'
-    ws['B1'] = 'Linge de maison - rideau - store'
-    ws.append(['',''])
-    ws.append(cdiscount_list)
-    ws.append(['',''])
-    for row in dataframe_to_rows(df, index = False, header = False):
-        ws.append(row)
+    def write_error(self, errors: list):
+        """
+        Put the detected errors into a dataframe and write into an excel file.
 
-    wb.save(filename = 'cdiscount_test1.xlsx')
+        Parameters:
+            errors      [list]  -   Detected errors while reading variations
+                                    from the REST API
+        """
+        df = pd.DataFrame(errors)
+        if len(df.index) == 0:
+            return
 
-def write_error():
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Linge de maison - rideau - store'
+        ws['A1'] = 'Model:'
+        ws['B1'] = 'Linge de maison - rideau - store'
+        ws.append(['',''])
+        ws.append([
+            'seller_ref', 'barcode', 'brand', 'product_nature',
+            'category_id', 'image_1', 'parent_sku', 'size', 'marketing_color',
+            'image_2', 'short_label', 'long_label', 'short_description',
+            'long_description'
+        ])
+        ws.append(['',''])
+        for row in dataframe_to_rows(df, index = False, header = False):
+            ws.append(row)
 
-    df = pd.DataFrame(ERROR_LIST)
+        wb.save(filename=self.error_filename)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = 'Linge de maison - rideau - store'
-    ws['A1'] = 'Model:'
-    ws['B1'] = 'Linge de maison - rideau - store'
-    ws.append(['',''])
-    ws.append([
-        'seller_ref', 'barcode', 'brand', 'product_nature',
-        'category_id', 'image_1', 'parent_sku', 'size', 'marketing_color',
-        'image_2', 'short_label', 'long_label', 'short_description',
-        'long_description'
-    ])
-    ws.append(['',''])
-    for row in dataframe_to_rows(df, index = False, header = False):
-        ws.append(row)
-
-    wb.save(filename = 'error.xlsx')
 
 def main():
-    API = connect()
-    extract_data(API)
-    get_texts(API)
-    write_xlsx()
-    write_error()
+    config = configparser.ConfigParser()
+    config.read(CONFIG_PATH)
+
+    base_path = ''
+    if config.has_section(section='general'):
+        if config.has_option(section='general', option='file_destination'):
+            base_path = config['general']['file_destination']
+
+    try:
+        plenty_fetch = PlentyFetch(config=config)
+    except InvalidConfig as err:
+        pprint.pprint(f"{err}")
+        sys.exit(1)
+
+    cdiscount_writer = CdiscountWriter(filename='cdiscount_import.xlsm',
+                                       error_filename='cdiscount_errors.xlsm',
+                                       base_path=base_path)
+
+    plenty_fetch.connect()
+    plenty_fetch.extract_data()
+    plenty_fetch.get_texts()
+    cdiscount_writer.write_xlsx(variations=plenty_fetch.variations)
+    cdiscount_writer.write_error(errors=plenty_fetch.errors)
