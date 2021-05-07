@@ -1,5 +1,6 @@
 import sys
 import pathlib
+import argparse
 import configparser
 import pandas as pd
 import numpy as np
@@ -8,7 +9,7 @@ import re
 import os
 import requests
 from openpyxl.utils.dataframe import dataframe_to_rows
-import pprint
+from loguru import logger
 import json
 import plenty_api
 
@@ -175,9 +176,11 @@ class PlentyFetch:
         Return:
                         [dict]
         """
+        logger.debug("Get atttributes from Plentymarkets")
         attributes = self.api.plenty_api_get_attributes(additional=['values'])
         color_id = int(self.config['plenty']['color_attribute_id'])
         size_id = int(self.config['plenty']['size_attribute_id'])
+        logger.debug("Get Cdiscount mappings from Plentymarkets")
         cdiscount_mappings = self.__get_market_mapping(
             attribute_id=color_id, market_id=self.referrer_id)
         if not cdiscount_mappings:
@@ -516,6 +519,7 @@ class PlentyFetch:
         """
         item_string_list = "in:" + ",".join(self.item_ids.keys())
 
+        logger.debug("Get item texts from Plentymarkets")
         items = (self.api.plenty_api_get_items(
             refine={'id':item_string_list}, lang='fr'
         ))
@@ -590,6 +594,7 @@ class PlentyFetch:
 
         for text in texts:
             for variation in self.variations:
+                logger.debug(f"{variation[ID_INDEX]} in self.item_ids[{text['item_id']}]: {self.item_ids[text['item_id']]}")
                 if int(variation[ID_INDEX]) in self.item_ids[text['item_id']]:
                     variation.insert(5, text['short_label'])
                     variation.insert(6, text['long_label'])
@@ -619,7 +624,7 @@ class CdiscountWriter:
         """
         df = pd.DataFrame(variations)
         if len(df.index) == 0:
-            pprint.pprint("No extracted variations found.")
+            logger.warning("No extracted variations found.")
             return
 
         wb = openpyxl.Workbook()
@@ -667,8 +672,20 @@ class CdiscountWriter:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', '-d', required=False,
+                        help='Activate debugging output',
+                        dest='debug', action='store_true')
+    args = parser.parse_args()
+
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
+
+    logger.remove()
+    if args.debug:
+        logger.add(sys.stdout, filter='cdiscount_import.cli', level="DEBUG")
+    else:
+        logger.add(sys.stdout, filter='cdiscount_import.cli', level="INFO")
 
     base_path = ''
     if config.has_section(section='general'):
@@ -676,9 +693,9 @@ def main():
             base_path = config['general']['file_destination']
 
     try:
-        plenty_fetch = PlentyFetch(config=config)
+        plenty_fetch = PlentyFetch(config=config, debug=args.debug)
     except InvalidConfig as err:
-        pprint.pprint(f"{err}")
+        logger.error(f"Configuration error: {err}")
         sys.exit(1)
 
     cdiscount_writer = CdiscountWriter(filename='cdiscount_import.xlsm',
