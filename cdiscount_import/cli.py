@@ -513,7 +513,7 @@ class PlentyFetch:
         them into a list of lists  and after put them into the item list
         created by extract_data().
         """
-        item_string_list = "','".join(self.item_ids.keys())
+        item_string_list = "in:" + ",".join(self.item_ids.keys())
 
         items = (self.api.plenty_api_get_items(
             refine={'id':item_string_list}, lang='fr'
