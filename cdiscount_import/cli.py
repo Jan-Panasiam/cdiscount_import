@@ -655,8 +655,8 @@ class CdiscountWriter:
         ws.append([
             'seller_ref', 'barcode', 'brand', 'product_nature',
             'category_id', 'image_1', 'parent_sku', 'size', 'marketing_color',
-            'image_2', 'short_label', 'long_label', 'short_description',
-            'long_description'
+            'image_2', 'image_3', 'image_4', 'short_label', 'long_label',
+            'short_description', 'long_description'
         ])
         ws.append(['',''])
         for row in dataframe_to_rows(df, index = False, header = False):
