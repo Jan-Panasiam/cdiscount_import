@@ -100,6 +100,7 @@ class PlentyFetch:
         self.debug = debug
         self.referrer_id = int(self.config['plenty']['referrer_id'])
         self.attribute_mapping = {}
+        self.manufacturers = []
         self.variations = []
         self.item_ids = {}
         self.errors = []
@@ -334,6 +335,30 @@ class PlentyFetch:
                 return 'No mapped cdiscount category'
         return 'No category for mandant'
 
+    def __get_brand(self, variation: dict) -> str:
+        """
+        Get brand name from the manufacturer list of Plentymarkets.
+
+        Parameters:
+            variation   [dict]  -   JSON of a single variation from the
+                                    Plentymarkets REST API
+
+        Return:
+                        [str]
+        """
+        try:
+            item = variation['item']
+        except KeyError:
+            return 'No item found'
+
+        if not self.manufacturers:
+            self.manufacturers = self.api.plenty_api_get_manufacturers()
+        for manufacturer in self.manufacturers:
+            # As we fetched the ID from the item, it is guranteed that we find
+            # a match
+            if manufacturer['id'] == item['manufacturerId']:
+                return manufacturer['name']
+
     def __get_images(self, variation : dict) -> list:
         """
         Get a maximum of 4 images for the Cdiscount columns.
@@ -392,7 +417,7 @@ class PlentyFetch:
             refine = {'referrerId': self.referrer_id}, additional = [
                 'variationProperties', 'variationBarcodes',
                 'variationDefaultCategory', 'images',
-                'variationAttributeValues', 'parent',
+                'variationAttributeValues', 'parent', 'item'
             ],
             lang='fr'
         )
@@ -453,7 +478,10 @@ class PlentyFetch:
                 err = True
                 seller_ref = 'Empty Value'
 
-            brand = 'PANASIAM'
+            brand = self.__get_brand(variation=variation)
+            if brand == 'No item found':
+                err = True
+
             category_id = self.__get_category(variation=variation)
             if category_id in ['No category found', 'No category for mandant',
                                'No mapped cdiscount category']:
