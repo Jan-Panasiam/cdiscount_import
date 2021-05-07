@@ -491,7 +491,7 @@ class PlentyFetch:
                                'No mapped cdiscount category']:
                 err = True
 
-            product_nature = 'Standard'
+            product_nature = 'Variant'
 
             image_block = self.__get_images(variation=variation)
             if not image_block:
