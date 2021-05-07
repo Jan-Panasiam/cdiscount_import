@@ -130,6 +130,7 @@ class PlentyFetch:
             use_keyring=True,
             debug=self.debug
         )
+        self.api.cli_progress_bar = True
 
     def __get_market_mapping(self, attribute_id: int, market_id: int) -> dict:
         """
