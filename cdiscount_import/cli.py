@@ -525,37 +525,51 @@ class PlentyFetch:
             err = False
             item_id = str(item['id'])
 
-            if len(item['texts'][0]['description']) <= MAX_LONG_DESC_LEN:
-                long_description = item['texts'][0]['description']
-            else:
-                err = True
-                long_description = 'Text too long'
+            # We only pull the french texts therefore we are guranteed to get
+            # the right text at index 0.
+            if item['texts']:
+                text = item['texts'][0]
+                if len(text['description']) <= MAX_LONG_DESC_LEN:
+                    long_description = text['description']
+                else:
+                    err = True
+                    long_description = 'Text too long'
 
-            if len(item['texts'][0]['name1']) <= MAX_SHORT_LABEL_LEN:
-                short_label = item['texts'][0]['name1']
-            else:
-                err = True
-                short_label = 'Text too long'
+                if len(text['name1']) <= MAX_SHORT_LABEL_LEN:
+                    short_label = text['name1']
+                else:
+                    err = True
+                    short_label = 'Text too long'
 
-            if len(item['texts'][0]['name2']) <= MAX_LONG_LABEL_LEN:
-                long_label = item['texts'][0]['name2']
-            else:
-                err = True
-                long_label = 'Text too long'
+                if len(text['name2']) <= MAX_LONG_LABEL_LEN:
+                    long_label = text['name2']
+                else:
+                    err = True
+                    long_label = 'Text too long'
 
-            if len(item['texts'][0]['shortDescription']) <= MAX_SHORT_DESC_LEN:
-                short_description = item['texts'][0]['shortDescription']
-            else:
-                err = True
-                short_description = 'Text too long'
+                if len(text['shortDescription']) <= MAX_SHORT_DESC_LEN:
+                    short_description = text['shortDescription']
+                else:
+                    err = True
+                    short_description = 'Text too long'
 
-            data = {
-                'item_id': item_id,
-                'short_label': short_label,
-                'long_label': long_label,
-                'short_description': short_description,
-                'long_description': long_description
-            }
+                data = {
+                    'item_id': item_id,
+                    'short_label': short_label,
+                    'long_label': long_label,
+                    'short_description': short_description,
+                    'long_description': long_description
+                }
+            else:
+                data = {
+                    'item_id': item_id,
+                    'short_label': 'No french text found',
+                    'long_label': 'No french text found',
+                    'short_description': 'No french text found',
+                    'long_description': 'No french text found'
+                }
+                err = True
+
             if err:
                 error_texts.append(data)
                 err = False
@@ -566,7 +580,7 @@ class PlentyFetch:
         for error in error_texts:
             for count, variation in enumerate(self.variations):
                 if int(variation[ID_INDEX]) in self.item_ids[error['item_id']]:
-                    self.errors.append(variation + error)
+                    self.errors.append(variation + [x for x in error.values()])
                     count_list.append(count)
         count_list.reverse()
 
