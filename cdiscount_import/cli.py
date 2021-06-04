@@ -12,6 +12,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 from loguru import logger
 import json
 import plenty_api
+import pprint
 
 
 PROG_NAME = 'cdiscount_import'
@@ -247,7 +248,7 @@ class PlentyFetch:
                 try:
                     return self.attribute_mapping['size'][value_id]
                 except KeyError:
-                    return ''
+                    return f'Err: No attribute mapping found for {value_id}'
 
         return ''
 
@@ -269,21 +270,22 @@ class PlentyFetch:
         """
         if not self.config.has_option(section='plenty',
                                       option='size_property_id'):
-            return ''
+            return 'Err: wrong size_property_id in config'
 
         try:
             properties = variation['variationProperties']
         except KeyError:
-            return ''
+            return 'Err: No variation properties found'
 
         prop_id = int(self.config['plenty']['size_property_id'])
+        pprint.pprint(properties)
         for prop in properties:
             if prop['propertyId'] == prop_id:
                 for name in prop['names']:
                     if lang.lower() == name['lang'].lower():
                         return name['value']
 
-        return ''
+        return 'Err: No property value found'
 
     def __get_barcode(self, variation: dict) -> str:
         """
@@ -418,7 +420,7 @@ class PlentyFetch:
         """
         self.attribute_mapping = self.__get_attribute_mappings(lang='fr')
         variations = self.api.plenty_api_get_variations(
-            refine = {'referrerId': self.referrer_id}, additional = [
+            refine = {'referrerId': self.referrer_id, 'itemId': '1010040001'}, additional = [
                 'variationProperties', 'variationBarcodes',
                 'variationDefaultCategory', 'images',
                 'variationAttributeValues', 'parent', 'item'
@@ -447,9 +449,8 @@ class PlentyFetch:
             size = self.__get_size_attribute(variation=variation)
             if not size:
                 size = self.__get_size_property(variation=variation, lang='fr')
-            if size == '':
+            if re.search("^Err:", size):
                 err = True
-                size = 'Empty Value'
 
             barcode = self.__get_barcode(variation=variation)
             if barcode in ['No barcode found', 'No EAN barcode found',
@@ -457,7 +458,8 @@ class PlentyFetch:
                 err = True
 
             try:
-                parent_sku = variation['parent']['number']
+                parent_sku =\
+                     f"{variation['parent']['number']}_{marketing_color}"
                 if len(parent_sku) > MAX_PARENT_SKU_LEN:
                     parent_sku = 'Too long'
                     err = True
